@@ -1,0 +1,313 @@
+// Filename: backend/aModule.jsw (web modules need to have a .jsw extension)
+import wixData from 'wix-data';
+import { BodyBuildingApiResponse, BodyBuildingExercise } from 'public/exercises.js'
+import nodemailer from "nodemailer";
+
+export function multiplyx(factor1, factor2) {
+	return factor1 * factor2;
+}
+
+//Use the following code in one of your site's front-end files
+//to call the multiply function from backend/aModule.jsw.
+
+/* 
+import {multiply} from 'backend/aModule';
+
+$w.onReady(function () {
+	
+	multiply(4,5).then(product => {
+	    console.log(product);
+	      // Logs: 20
+	})
+	.catch(error => {
+		console.log(error);
+	});
+});
+
+
+
+
+	await wixData.insert("Programme-Musculation-Exercices", {
+			"parent": "619bb6a7-928a-4ee3-b0bb-b845ca374262",
+			"exercise": "829f409a-55ef-4ddd-b9a3-be7b705f0def",
+			"series": 4,
+			"repetitions": 5,
+			"weight": 6,
+		})
+		.then((results) => {
+			let item = results; //see item below
+			response.body.results = item;
+		})
+		.catch((err) => {
+			let errorMsg = err;
+			response.body.error = errorMsg;
+		});
+*/
+
+const MAIN_DATABASE = "Programme-Musculation";
+const ITEM_DATABASE = "Programme-Musculation-Exercices";
+
+export function hello() {
+	return "world";
+}
+
+export async function processExerciseRedactorTransaction(exercises, to, items, extraMessage) {
+	let error;
+	let mainEntry;
+	let token = generate_token();
+
+	console.log("processing");
+
+	await wixData.insert(MAIN_DATABASE, {
+			"token": token,
+			"target": to,
+			"extra_message": extraMessage,
+		})
+		.then((results) => {
+			mainEntry = results;
+		})
+		.catch((err) => {
+			error = err;
+		});
+
+	console.log("got main");
+
+	if (!mainEntry) {
+		return {
+			"success": false,
+			"error": error,
+			"entry": mainEntry,
+		};
+	}
+
+	console.log("main is valid");
+
+	let itemResponseArray = [];
+	let validItems = [];
+
+	for (let item of items) {
+		console.log("processed item");
+
+		let exerciseObject = resolveExerciseById(exercises, item.exercise); // Resolving by key
+
+		if (exerciseObject) {
+			validItems.push(item);
+			item.resolved = exerciseObject;
+
+			let itemEntry;
+
+			await wixData.insert(ITEM_DATABASE, {
+					"parent": mainEntry._id,
+					"exercise": exerciseObject._id,
+					"series": item.series,
+					"repetitions": item.repetitions,
+					"weight": item.weight,
+					"redactor_id": item._id,
+				})
+				.then((results) => {
+					itemEntry = results;
+				})
+				.catch((err) => {
+					error = err;
+				});
+
+			itemResponseArray.push({
+				"success": error == null,
+				"error": error,
+				"entry": itemEntry,
+			});
+		} else {
+			itemResponseArray.push({
+				"success": false,
+				"error": "key not resolved: " + item.exercise
+			});
+		}
+	}
+
+	sendMail(to, validItems, extraMessage, token);
+
+	return {
+		"success": true,
+		"responses": itemResponseArray,
+	};
+}
+
+function resolveExerciseById(exercises, key) {
+	for (let exercise of exercises) {
+		if (exercise.key == key) {
+			return exercise;
+		}
+	}
+
+	return null;
+}
+
+function generate_token(length = 64) {
+	var a = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890".split("");
+	var b = [];
+	for (var i = 0; i < length; i++) {
+		var j = (Math.random() * (a.length - 1)).toFixed(0);
+		b[i] = a[j];
+	}
+	return b.join("");
+}
+
+function sendMail(to, validItems, extraMessage, entryToken) {
+	var transporter = nodemailer.createTransport({
+		service: 'gmail',
+		auth: {
+			user: 'thecaceresenzo@gmail.com',
+			pass: '' // Not showing my password ;p
+		}
+	});
+
+	let body = "";
+	body += "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">";
+	body += "<html xmlns=\"http://www.w3.org/1999/xhtml\">";
+	body += "<head>";
+	body += "    <meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\" />";
+	body += "    <title>Mon vrai Guide de Musculation - Email</title>";
+	body += "    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />";
+	body += "</head>";
+	body += "<body style=\"margin:0; padding:10px 0 0 0;font-family: Roboto, sans-serif;\" bgcolor=\"#F8F8F8\">";
+	body += "    <table align=\"center\" cellpadding=\"0\" cellspacing=\"0\" width=\"95%%\">";
+	body += "        <tr>";
+	body += "            <td align=\"center\">";
+	body += "                <table align=\"center\" cellpadding=\"0\" cellspacing=\"0\" width=\"600\" style=\"border-collapse: separate; border-spacing: 2px 5px;\" bgcolor=\"#FFFFFF\">";
+	body += "                    <tr>";
+	body += "                        <td align=\"center\" style=\"padding: 5px 5px 5px 5px;\">";
+	body += "                            <a href=\"https://www.monguidemusculation.com/\" target=\"_blank\">";
+	body += "                                <img src=\"https://i.imgur.com/1NorGzh.png\" alt=\"Logo\" style=\"border:0;height:150px;\" />";
+	body += "                            </a>";
+	body += "                            <h1 style=\"color:#EF6C00;\">MON VRAI GUIDE DE MUSCULATION</h1>";
+	body += "                        </td>";
+	body += "                    </tr>";
+	body += "                    <tr>";
+	body += "                        <td bgcolor=\"#ffffff\" style=\"padding: 8px 30px 2px 30px;\">";
+	body += "                            <table cellpadding=\"0\" cellspacing=\"0\" width=\"100%\">";
+	body += "                                <tr>";
+	body += "                                    <h2 style=\"color:#EF6C00;text-align: center;\">Voici un programme adapt&eacute; pour vous</h2>";
+	body += "                                </tr>";
+	body += "                                <tr>";
+	body += "                                    <td style=\"font-size: 16px;\">";
+	body += "                                        <table cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" style=\"border-color: #EF6C00;border-style:solid;border-radius: 8px;\">";
+	body += "                                            <thead>";
+	body += "                                                <tr>";
+	body += "                                                    <td bgcolor=\"#EF6C00\" style=\"text-align: center; padding: 8px;color: white;\">Exercice" + (validItems.length > 1 ? "s" : "") + "</td>";
+	body += "                                                    <td bgcolor=\"#EF6C00\" style=\"text-align: center; padding: 8px;color: white;\">S&eacute;rie</td>";
+	body += "                                                    <td bgcolor=\"#EF6C00\" style=\"text-align: center; padding: 8px;color: white;\">R&eacute;p&eacute;titions</td>";
+	body += "                                                    <td bgcolor=\"#EF6C00\" style=\"text-align: center; padding: 8px;color: white;\">Poids</td>";
+	body += "                                                </tr>";
+	body += "                                            </thead>";
+	body += "                                            <tbody>";
+
+	for (let item of validItems) {
+		body += "                                                <tr>";
+		body += "                                                    <td style=\"width: 40%; text-align: center;border-color: #EF6C00;border-style:solid;\">";
+		body += "                                                        <p style=\"margin-bottom: 0px;\">" + item.resolved.title + "</p>";
+		body += "                                                        <p style=\"margin-top: 0px; font-size: 12px\">(" + item.resolved.muscle.title + ")</p>";
+		body += "                                                    </td>";
+		body += "                                                    <td style=\"width: 20%; text-align: center;border-color: #EF6C00;border-style:solid;\">" + item.series + "</td>";
+		body += "                                                    <td style=\"width: 20%; text-align: center;border-color: #EF6C00;border-style:solid;\">" + item.repetitions + "</td>";
+		body += "                                                    <td style=\"width: 20%; text-align: center;border-color: #EF6C00;border-style:solid;\">" + item.weight + " kg</td>";
+		body += "                                                </tr>";
+	}
+
+	body += "                                            </tbody>";
+	body += "                                        </table>";
+	body += "                                    </td>";
+	body += "                                </tr>";
+
+	if (extraMessage) {
+		body += "                                <td>";
+		body += "                                    <p style=\"text-align: center;\">" + extraMessage + "</p>";
+		body += "                                </td>";
+	}
+
+	body += "                            </table>";
+	body += "                        </td>";
+	body += "                    </tr>";
+	body += "                    <tr>";
+	body += "                        <td bgcolor=\"#EF6C00\" style=\"border-radius: 8px;\">";
+	body += "                            <table cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" style=\"padding: 20px 10px 10px 10px;\">";
+	body += "                                <tr>";
+	body += "                                    <td width=\"260\" valign=\"top\">";
+	body += "                                        <table cellpadding=\"0\" cellspacing=\"0\" width=\"100%\">";
+	body += "                                            <tr>";
+	body += "                                                <td align=\"center\">";
+	body += "                                                    <a href=\"https://www.monguidemusculation.com/programme/" + entryToken + "?openInApp=true\" style=\"text-decoration: none;\">";
+	body += "                                                        <h1 style=\"display: block;color:#FFFFFF;\">OUVRIR DANS L'APPLICATION</h1>";
+	body += "                                                    </a>";
+	body += "                                                </td>";
+	body += "                                            </tr>";
+	body += "                                            <tr>";
+	body += "                                                <td align=\"center\" style=\"font-family: Avenir, sans-serif; color:#FFFFFF;font-size: 13px;padding: 10px 0 0 0;\">";
+	body += "                                                    VOUS NE L'AVEZ PAS ? TELECHARGEZ LA SUR LE PLAY STORE";
+	body += "                                                </td>";
+	body += "                                            </tr>";
+	body += "                                            <tr>";
+	body += "                                                <td align=\"center\" style=\"font-family: Avenir, sans-serif; color:#FFFFFF;font-size: 13px;padding: 10px 0 0 0;\">";
+	body += "                                                    <a href=\"https://play.google.com/store/apps\">";
+	body += "                                                        <img style=\"height:50px; padding: 0 0 5px 0\" alt=\"Icon Play Store\" src=\"https://i.imgur.com/QIsGlCv.png\">";
+	body += "                                                    </a>";
+	body += "                                                </td>";
+	body += "                                            </tr>";
+	body += "                                        </table>";
+	body += "                                    </td>";
+	body += "                                </tr>";
+	body += "                            </table>";
+	body += "                        </td>";
+	body += "                    </tr>";
+	body += "                    <tr>";
+	body += "                        <td bgcolor=\"#EF6C00\" style=\"padding: 15px 15px 15px 15px;border-radius: 8px;\">";
+	body += "                            <table cellpadding=\"0\" cellspacing=\"0\" width=\"100%\">";
+	body += "                                <tr>";
+	body += "                                    <td align=\"center\">";
+	body += "                                        <table cellpadding=\"0\" cellspacing=\"0\">";
+	body += "                                            <tr>";
+	body += "                                                <td>";
+	body += "                                                    <a href=\"#\" target=\"_blank\">";
+	body += "                                                        <img src=\"https://i.imgur.com/yROs5XJ.png\" alt=\"Instagram\" width=\"50\" height=\"50\" style=\"display: block;\" />";
+	body += "                                                    </a>";
+	body += "                                                </td>";
+	body += "                                                <td style=\"font-size: 0; line-height: 0;\" width=\"20\">&nbsp;</td>";
+	body += "                                                <td>";
+	body += "                                                    <a href=\"#\" target=\"_blank\">";
+	body += "                                                        <img src=\"https://i.imgur.com/t4Vtq5z.png\" alt=\"Facebook\" width=\"50\" height=\"50\" style=\"display: block;\" />";
+	body += "                                                    </a>";
+	body += "                                                </td>";
+	body += "                                                <td style=\"font-size: 0; line-height: 0;\" width=\"20\">&nbsp;</td>";
+	body += "                                                <td>";
+	body += "                                                    <a href=\"#\" target=\"_blank\">";
+	body += "                                                        <img src=\"https://i.imgur.com/VyEtetD.png\" alt=\"Youtube\" width=\"50\" height=\"50\" style=\"display: block;\" />";
+	body += "                                                    </a>";
+	body += "                                                </td>";
+	body += "                                            </tr>";
+	body += "                                        </table>";
+	body += "                                    </td>";
+	body += "                                </tr>";
+	body += "                            </table>";
+	body += "                        </td>";
+	body += "                    </tr>";
+	body += "                </table>";
+	body += "            </td>";
+	body += "        </tr>";
+	body += "    </table>";
+	body += "</body>";
+	body += "</html>";
+
+	const mailOptions = {
+		from: 'Mon Guide Musculation <thecaceresenzo@gmail.com>',
+		to: to,
+		subject: 'Programme Personnalisé',
+		html: body
+	};
+
+	transporter.sendMail(mailOptions, function (err, info) {
+		if (err) {
+			console.log(err);
+		} else {
+			console.log(info);
+		}
+	});
+}
